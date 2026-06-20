@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Токен бота (приоритет переменной окружения, затем значение по умолчанию)
-BOT_TOKEN = os.getenv('BOT_TOKEN', '8353868163:AAHND3Mn-IDKIwx4j9zODouuc-pVr2147Ek')
+BOT_TOKEN = os.getenv('BOT_TOKEN', '8683124553:AAFcq_VmrQCPqLxMsDLgCkmnbdM7a22LBMo')
 
 # Проверка наличия токена
 if not BOT_TOKEN or BOT_TOKEN == 'your_bot_token_here':
