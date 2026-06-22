@@ -4,6 +4,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 from config import BOT_TOKEN, SYSTEM_MESSAGE_TYPES
 
+# Настройка логирования
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -16,14 +17,22 @@ class SystemMessageCleanerBot:
         self.setup_handlers()
     
     def setup_handlers(self):
+        """Настройка обработчиков команд и сообщений"""
+        # Основные команды
         self.application.add_handler(CommandHandler("start", self.start_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
-        self.application.add_handler(CommandHandler("status", self.status_command))
+        
+        # Команда для намаза с кнопками
         self.application.add_handler(CommandHandler("prayer", self.prayer_command))
+        
+        # Обработчик нажатий на кнопки
         self.application.add_handler(CallbackQueryHandler(self.button_callback))
+        
+        # Обработчик всех сообщений (для удаления системных)
         self.application.add_handler(MessageHandler(filters.ALL, self.handle_message))
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /start"""
         welcome_text = """
 🤖 **Бот для очистки системных сообщений + время намаза**
 
@@ -41,7 +50,6 @@ class SystemMessageCleanerBot:
 **Команды:**
 /start - показать это сообщение
 /help - подробная справка
-/status - статус бота в чате
 /prayer - время намаза (выбор города из кнопок)
 
 Для работы очистки добавьте меня в чат и дайте права администратора на удаление сообщений.
@@ -49,6 +57,7 @@ class SystemMessageCleanerBot:
         await update.message.reply_text(welcome_text, parse_mode='Markdown')
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /help"""
         help_text = """
 📖 **Справка по использованию бота**
 
@@ -63,7 +72,6 @@ class SystemMessageCleanerBot:
 **📋 Команды:**
 /start - главное меню
 /help - эта справка
-/status - статус работы
 /prayer - время намаза (выбор города из кнопок)
 
 **Требования:**
@@ -71,28 +79,6 @@ class SystemMessageCleanerBot:
 • Права на удаление и просмотр сообщений
         """
         await update.message.reply_text(help_text, parse_mode='Markdown')
-    
-    async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        chat = update.effective_chat
-        try:
-            bot_member = await chat.get_member(context.bot.id)
-            status_text = f"""
-📊 **Статус бота в чате**
-
-**Чат:** {chat.title or chat.first_name}
-**Тип чата:** {chat.type}
-**ID чата:** {chat.id}
-
-**Права бота:**
-• Администратор: {'✅' if bot_member.status in ['administrator', 'creator'] else '❌'}
-• Может удалять сообщения: {'✅' if bot_member.can_delete_messages else '❌'}
-• Может просматривать сообщения: {'✅' if bot_member.can_read_messages else '❌'}
-
-**Статус:** {'🟢 Активен' if bot_member.status in ['administrator', 'creator'] else '🔴 Неактивен'}
-            """
-        except Exception as e:
-            status_text = f"❌ Ошибка при получении статуса: {e}"
-        await update.message.reply_text(status_text, parse_mode='Markdown')
     
     async def prayer_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Показывает кнопки для выбора города"""
@@ -151,26 +137,68 @@ class SystemMessageCleanerBot:
                 await query.edit_message_text(f"❌ Не удалось найти время намаза для {city_display}.")
         except Exception as e:
             await query.edit_message_text("❌ Ошибка при получении времени намаза.")
-            logger.error(f"Ошибка: {e}")
+            logger.error(f"Ошибка в button_callback: {e}")
     
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик всех сообщений для удаления системных"""
         message = update.message
+        
         if self.is_system_message(message):
             try:
                 await message.delete()
-                logger.info(f"Удалено системное сообщение в чате {message.chat.id}")
+                # Лог в терминал
+                logger.info(f"🗑️ Удалено системное сообщение в чате {message.chat.id}")
+                
+                # Уведомляем администраторов в личные сообщения
+                await self.notify_admins_privately(message, context)
             except Exception as e:
-                logger.error(f"Ошибка при удалении: {e}")
+                logger.error(f"❌ Ошибка при удалении: {e}")
+                try:
+                    await self.notify_admins_privately(message, context, error=True)
+                except:
+                    pass
+    
+    async def notify_admins_privately(self, message, context, error=False):
+        """Уведомляет администраторов в личные сообщения"""
+        try:
+            admins = await message.chat.get_administrators()
+            for admin in admins:
+                if admin.user.id != context.bot.id:
+                    try:
+                        if error:
+                            notification_text = f"⚠️ Не удалось удалить системное сообщение в чате {message.chat.title}. Проверьте права бота."
+                        else:
+                            notification_text = f"🗑️ В чате {message.chat.title} удалено системное сообщение"
+                        
+                        await context.bot.send_message(
+                            chat_id=admin.user.id,
+                            text=notification_text
+                        )
+                        logger.info(f"📨 Уведомление отправлено администратору {admin.user.id}")
+                    except Exception as e:
+                        logger.error(f"❌ Не удалось отправить уведомление администратору {admin.user.id}: {e}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка при получении списка администраторов: {e}")
     
     def is_system_message(self, message) -> bool:
+        """
+        Проверяет, является ли сообщение системным.
+        Удаляет ТОЛЬКО официальные системные поля Telegram.
+        НЕ удаляет обычные сообщения.
+        """
+        # Если есть текст — НЕ удаляем
         if message.text and len(message.text.strip()) > 0:
             return False
         
-        if any([message.photo, message.video, message.audio, message.document,
-                message.voice, message.video_note, message.sticker, message.animation,
-                message.contact, message.location, message.venue, message.poll]):
+        # Если есть медиа — НЕ удаляем
+        if any([
+            message.photo, message.video, message.audio, message.document,
+            message.voice, message.video_note, message.sticker, message.animation,
+            message.contact, message.location, message.venue, message.poll
+        ]):
             return False
         
+        # Проверяем системные поля
         if hasattr(message, 'new_chat_members') and message.new_chat_members:
             return True
         if hasattr(message, 'left_chat_member') and message.left_chat_member is not None:
@@ -191,10 +219,12 @@ class SystemMessageCleanerBot:
         for field in system_fields:
             if hasattr(message, field) and getattr(message, field) is not None:
                 return True
+        
         return False
     
     def run(self):
-        logger.info("Запуск бота...")
+        """Запуск бота"""
+        logger.info("🚀 Бот запущен и готов к работе!")
         self.application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
