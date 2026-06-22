@@ -1,15 +1,13 @@
 import os
 from dotenv import load_dotenv
 
-# Загружаем переменные окружения
+# Загружаем переменные окружения из .env
 load_dotenv()
 
-# Токен бота (приоритет переменной окружения, затем значение по умолчанию)
-BOT_TOKEN = os.getenv('BOT_TOKEN', '8683124553:AAFcq_VmrQCPqLxMsDLgCkmnbdM7a22LBMo')
-
-# Проверка наличия токена
-if not BOT_TOKEN or BOT_TOKEN == 'your_bot_token_here':
-    raise ValueError("Пожалуйста, настройте BOT_TOKEN в переменных окружения или в config.py")
+# Токен бота (только из переменных окружения)
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN не найден в .env файле")
 
 # Список системных сообщений для удаления
 SYSTEM_MESSAGE_TYPES = [
@@ -42,4 +40,4 @@ SYSTEM_MESSAGE_TYPES = [
     'video_chat_ended',
     'video_chat_participants_invited',
     'web_app_data'
-] 
+]
