@@ -214,13 +214,32 @@ class SystemMessageCleanerBot:
     
     def is_system_message(self, message) -> bool:
         """
-        Проверяет, является ли сообщение системным (служебным).
-        Использует ТОЛЬКО официальные поля Telegram, без опасных эвристик.
+        Проверяет, является ли сообщение системным.
+        Удаляет ТОЛЬКО официальные системные поля Telegram.
+        НЕ удаляет обычные сообщения НИ ПРИ КАКИХ условиях.
         """
-        # 1. Проверяем официальные системные поля (это безопасно!)
+        # Если у сообщения есть текст - это НЕ системное сообщение (почти всегда)
+        if message.text and len(message.text.strip()) > 0:
+            return False
+        
+        # Если есть медиа (фото, видео, документ и т.д.) — НЕ удаляем
+        if any([
+            message.photo, message.video, message.audio, message.document,
+            message.voice, message.video_note, message.sticker, message.animation,
+            message.contact, message.location, message.venue, message.poll
+        ]):
+            return False
+        
+        # Проверяем ТОЛЬКО официальные системные поля
+        # И только если они точно указывают на системное сообщение
+        if hasattr(message, 'new_chat_members') and message.new_chat_members:
+            return True
+        
+        if hasattr(message, 'left_chat_member') and message.left_chat_member is not None:
+            return True
+        
+        # Эти поля тоже однозначно системные
         system_fields = [
-            'new_chat_members',
-            'left_chat_member',
             'new_chat_title',
             'new_chat_photo',
             'delete_chat_photo',
@@ -254,45 +273,7 @@ class SystemMessageCleanerBot:
             if hasattr(message, field) and getattr(message, field) is not None:
                 return True
         
-        # 2. Проверяем специальный тип: служебные сообщения о выходе участника
-        if hasattr(message, 'left_chat_member') and message.left_chat_member is not None:
-            return True
-        
-        # 3. Проверяем сообщения о присоединении
-        if hasattr(message, 'new_chat_members') and message.new_chat_members:
-            return True
-        
-        # 4. БЕЗОПАСНАЯ проверка текста: только если текст совпадает с шаблоном ТОЧНО
-        if message.text:
-            # Удаляем только если сообщение состоит ТОЛЬКО из служебной фразы
-            system_phrases = [
-                "присоединился к группе",
-                "присоединилась к группе",
-                "покинул группу",
-                "покинула группу",
-                "ушел из группы",
-                "ушла из группы",
-                "joined the group",
-                "left the group"
-            ]
-            text_clean = message.text.strip().lower()
-            for phrase in system_phrases:
-                if text_clean == phrase.lower():
-                    return True
-        
-        # 5. НЕ удаляем сообщения, если есть текст (даже если он короткий)
-        if message.text and len(message.text.strip()) > 0:
-            return False
-        
-        # 6. Если есть медиа (фото, видео, документ и т.д.) — НЕ удаляем
-        if any([
-            message.photo, message.video, message.audio, message.document,
-            message.voice, message.video_note, message.sticker, message.animation,
-            message.contact, message.location, message.venue, message.poll
-        ]):
-            return False
-        
-        # 7. ВСЕ остальные сообщения считаем НЕ системными
+        # ВСЕ остальные сообщения НЕ удаляем
         return False
     
     def run(self):
