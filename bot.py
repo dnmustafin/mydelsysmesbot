@@ -1,5 +1,5 @@
 import logging
-import requests  # <-- ДОБАВЛЕНО: для работы с API намаза
+import requests  # для работы с API намаза
 from telegram import Update
 from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
 from config import BOT_TOKEN, SYSTEM_MESSAGE_TYPES
@@ -27,7 +27,7 @@ class SystemMessageCleanerBot:
         # Обработчик команды /status
         self.application.add_handler(CommandHandler("status", self.status_command))
         
-        # НОВЫЙ ОБРАБОТЧИК: команда /prayer
+        # Обработчик команды /prayer (время намаза)
         self.application.add_handler(CommandHandler("prayer", self.prayer_command))
         
         # Обработчик всех сообщений для проверки системных сообщений
@@ -36,25 +36,27 @@ class SystemMessageCleanerBot:
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /start"""
         welcome_text = """
-🤖 **Бот для очистки системных сообщений**
+🤖 **Бот для очистки системных сообщений + время намаза**
 
-Привет! Я автоматически удаляю системные сообщения из чатов.
+Привет! Я умею две вещи:
 
-**Что я удаляю:**
+**1. 🧹 Очистка чата от системных сообщений:**
 • Сообщения о входе/выходе участников
-• Изменения названия чата
-• Изменения фото чата
-• Сообщения о создании чата
+• Изменения названия и фото чата
 • Закрепленные сообщения
 • И другие системные уведомления
 
+**2. 🕌 Время намаза:**
+• `/prayer Mecca` - время намаза в Мекке
+• `/prayer Medina` - время намаза в Медине
+
 **Команды:**
 /start - показать это сообщение
-/help - справка
-/status - статус бота
-/prayer [город] - время намаза (Mecca или Medina)
+/help - подробная справка
+/status - статус бота в чате
+/prayer [город] - время намаза
 
-Для работы добавьте меня в чат и дайте права администратора для удаления сообщений.
+Для работы очистки добавьте меня в чат и дайте права администратора на удаление сообщений.
         """
         await update.message.reply_text(welcome_text, parse_mode='Markdown')
     
@@ -63,30 +65,24 @@ class SystemMessageCleanerBot:
         help_text = """
 📖 **Справка по использованию бота**
 
-**Как использовать:**
+**🧹 Очистка системных сообщений:**
 1. Добавьте бота в чат
-2. Сделайте бота администратором
-3. Дайте права на удаление сообщений
-4. Бот автоматически начнет удалять системные сообщения
+2. Сделайте бота администратором с правом удаления сообщений
+3. Бот автоматически начнет удалять системные сообщения
 
-**Требования:**
-• Бот должен быть администратором чата
-• Права на удаление сообщений
-• Права на просмотр сообщений
+**🕌 Время намаза:**
+• `/prayer Mecca` - время намаза в Мекке
+• `/prayer Medina` - время намаза в Медине
 
-**Поддерживаемые типы системных сообщений:**
-• new_chat_members - новые участники
-• left_chat_member - вышедшие участники
-• new_chat_title - изменение названия
-• new_chat_photo - изменение фото
-• pinned_message - закрепленные сообщения
-• И многие другие...
-
-**Команды:**
+**📋 Команды:**
 /start - главное меню
 /help - эта справка
 /status - статус работы
-/prayer [город] - время намаза (например, /prayer Mecca или /prayer Medina)
+/prayer [город] - время намаза
+
+**Требования:**
+• Бот должен быть администратором чата
+• Права на удаление и просмотр сообщений
         """
         await update.message.reply_text(help_text, parse_mode='Markdown')
     
@@ -117,7 +113,6 @@ class SystemMessageCleanerBot:
         
         await update.message.reply_text(status_text, parse_mode='Markdown')
     
-    # ============ НОВАЯ ФУНКЦИЯ ДЛЯ НАМАЗА ============
     async def prayer_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обрабатывает команду /prayer и показывает время намаза для указанного города."""
         try:
@@ -173,7 +168,6 @@ class SystemMessageCleanerBot:
         except Exception as e:
             await update.message.reply_text("❌ Произошла ошибка при получении времени намаза.")
             logger.error(f"Ошибка в prayer_command: {e}")
-    # ============ КОНЕЦ НОВОЙ ФУНКЦИИ ============
     
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик всех сообщений для удаления системных"""
