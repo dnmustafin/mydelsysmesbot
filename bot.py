@@ -1,7 +1,7 @@
 import logging
 import requests  # для работы с API намаза
-from telegram import Update
-from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 from config import BOT_TOKEN, SYSTEM_MESSAGE_TYPES
 
 # Настройка логирования
@@ -18,19 +18,20 @@ class SystemMessageCleanerBot:
     
     def setup_handlers(self):
         """Настройка обработчиков команд и сообщений"""
-        # Обработчик команды /start
         self.application.add_handler(CommandHandler("start", self.start_command))
-        
-        # Обработчик команды /help
         self.application.add_handler(CommandHandler("help", self.help_command))
-        
-        # Обработчик команды /status
         self.application.add_handler(CommandHandler("status", self.status_command))
         
-        # Обработчик команды /prayer (время намаза)
+        # Команды для намаза (без ввода города)
+        self.application.add_handler(CommandHandler("prayer_mecca", self.prayer_mecca_command))
+        self.application.add_handler(CommandHandler("prayer_medina", self.prayer_medina_command))
+        
+        # Команда /prayer с кнопками
         self.application.add_handler(CommandHandler("prayer", self.prayer_command))
         
-        # Обработчик всех сообщений для проверки системных сообщений
+        # Обработчик нажатий на кнопки
+        self.application.add_handler(CallbackQueryHandler(self.button_callback))
+        
         self.application.add_handler(MessageHandler(filters.ALL, self.handle_message))
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -47,14 +48,17 @@ class SystemMessageCleanerBot:
 • И другие системные уведомления
 
 **2. 🕌 Время намаза:**
-• `/prayer Mecca` - время намаза в Мекке
-• `/prayer Medina` - время намаза в Медине
+• `/prayer_mecca` - время намаза в Мекке
+• `/prayer_medina` - время намаза в Медине
+• `/prayer` - выбрать город из кнопок
 
 **Команды:**
 /start - показать это сообщение
 /help - подробная справка
 /status - статус бота в чате
-/prayer [город] - время намаза
+/prayer_mecca - время намаза в Мекке
+/prayer_medina - время намаза в Медине
+/prayer - выбрать город из кнопок
 
 Для работы очистки добавьте меня в чат и дайте права администратора на удаление сообщений.
         """
@@ -71,14 +75,17 @@ class SystemMessageCleanerBot:
 3. Бот автоматически начнет удалять системные сообщения
 
 **🕌 Время намаза:**
-• `/prayer Mecca` - время намаза в Мекке
-• `/prayer Medina` - время намаза в Медине
+• `/prayer_mecca` - время намаза в Мекке
+• `/prayer_medina` - время намаза в Медине
+• `/prayer` - выбрать город из кнопок
 
 **📋 Команды:**
 /start - главное меню
 /help - эта справка
 /status - статус работы
-/prayer [город] - время намаза
+/prayer_mecca - время намаза в Мекке
+/prayer_medina - время намаза в Медине
+/prayer - выбрать город из кнопок
 
 **Требования:**
 • Бот должен быть администратором чата
@@ -91,7 +98,6 @@ class SystemMessageCleanerBot:
         chat = update.effective_chat
         
         try:
-            # Проверяем права бота
             bot_member = await chat.get_member(context.bot.id)
             
             status_text = f"""
@@ -113,27 +119,62 @@ class SystemMessageCleanerBot:
         
         await update.message.reply_text(status_text, parse_mode='Markdown')
     
+    async def prayer_mecca_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обрабатывает команду /prayer_mecca"""
+        await self.send_prayer_times(update.message, "Mecca", "Мекке")
+    
+    async def prayer_medina_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обрабатывает команду /prayer_medina"""
+        await self.send_prayer_times(update.message, "Medina", "Медине")
+    
     async def prayer_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обрабатывает команду /prayer и показывает время намаза для указанного города."""
+        """Обрабатывает команду /prayer и показывает кнопки для выбора города"""
+        keyboard = [
+            [
+                InlineKeyboardButton("🕋 Мекка", callback_data="prayer_mecca"),
+                InlineKeyboardButton("🕌 Медина", callback_data="prayer_medina"),
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            "🕌 Выберите город для получения времени намаза:\n\n"
+            "Или используйте команды:\n"
+            "/prayer_mecca - для Мекки\n"
+            "/prayer_medina - для Медины",
+            reply_markup=reply_markup
+        )
+    
+    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обрабатывает нажатие на кнопки"""
+        query = update.callback_query
+        await query.answer()
+        
+        if query.data == "prayer_mecca":
+            await self.send_prayer_times(query.message, "Mecca", "Мекке")
+        elif query.data == "prayer_medina":
+            await self.send_prayer_times(query.message, "Medina", "Медине")
+        else:
+            await query.edit_message_text("❌ Неизвестный город.")
+    
+    async def send_prayer_times(self, message, city, city_display=None):
+        """Отправляет время намаза для указанного города"""
+        if city_display is None:
+            city_display = city
+        
+        # Показываем, что бот думает (если это не кнопка)
+        if hasattr(message, 'edit_text'):
+            await message.edit_text(f"🔄 Загружаю время намаза для {city_display}...")
+        else:
+            await message.reply_text(f"🔄 Загружаю время намаза для {city_display}...")
+        
         try:
-            # Получаем город из сообщения пользователя
-            city = context.args[0] if context.args else None
-            
-            if city is None:
-                await update.message.reply_text(
-                    "🕌 Пожалуйста, укажите город.\n"
-                    "Например: `/prayer Mecca` или `/prayer Medina`",
-                    parse_mode='Markdown'
-                )
-                return
-            
-            # Запрос к AlAdhan API
             response = requests.get(
                 f"http://api.aladhan.com/v1/timingsByCity",
                 params={
                     "city": city,
                     "country": "Saudi Arabia",
-                    "method": 2  # Метод ISNA (Исламское общество Северной Америки)
+                    "method": 2
                 },
                 timeout=10
             )
@@ -144,7 +185,7 @@ class SystemMessageCleanerBot:
                 date_info = data['data']['date']['readable']
                 
                 prayer_times = (
-                    f"🕌 **Время намаза для {city}**\n"
+                    f"🕌 **Время намаза для {city_display}**\n"
                     f"📅 {date_info}\n\n"
                     f"🌅 **Фаджр:** {timings['Fajr']}\n"
                     f"☀️ **Восход:** {timings['Sunrise']}\n"
@@ -153,39 +194,52 @@ class SystemMessageCleanerBot:
                     f"🌆 **Магриб:** {timings['Maghrib']}\n"
                     f"🌃 **Иша:** {timings['Isha']}"
                 )
-                await update.message.reply_text(prayer_times, parse_mode='Markdown')
+                
+                # Если это сообщение от кнопки — редактируем, иначе отправляем новое
+                if hasattr(message, 'edit_text'):
+                    await message.edit_text(prayer_times, parse_mode='Markdown')
+                else:
+                    await message.reply_text(prayer_times, parse_mode='Markdown')
             else:
-                await update.message.reply_text(
-                    f"❌ Не удалось найти время намаза для города '{city}'.\n"
-                    "Проверьте написание (Mecca или Medina)."
-                )
+                error_text = f"❌ Не удалось найти время намаза для {city_display}."
+                if hasattr(message, 'edit_text'):
+                    await message.edit_text(error_text)
+                else:
+                    await message.reply_text(error_text)
                 
         except requests.exceptions.Timeout:
-            await update.message.reply_text("⏰ Сервер времени намаза не отвечает. Попробуйте позже.")
+            error_text = "⏰ Сервер времени намаза не отвечает. Попробуйте позже."
+            if hasattr(message, 'edit_text'):
+                await message.edit_text(error_text)
+            else:
+                await message.reply_text(error_text)
         except requests.exceptions.RequestException as e:
-            await update.message.reply_text("🌐 Ошибка соединения с сервером времени намаза.")
+            error_text = "🌐 Ошибка соединения с сервером времени намаза."
+            if hasattr(message, 'edit_text'):
+                await message.edit_text(error_text)
+            else:
+                await message.reply_text(error_text)
             logger.error(f"Ошибка запроса к API намаза: {e}")
         except Exception as e:
-            await update.message.reply_text("❌ Произошла ошибка при получении времени намаза.")
-            logger.error(f"Ошибка в prayer_command: {e}")
+            error_text = "❌ Произошла ошибка при получении времени намаза."
+            if hasattr(message, 'edit_text'):
+                await message.edit_text(error_text)
+            else:
+                await message.reply_text(error_text)
+            logger.error(f"Ошибка в send_prayer_times: {e}")
     
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик всех сообщений для удаления системных"""
         message = update.message
         
-        # Проверяем, является ли сообщение системным
         if self.is_system_message(message):
             try:
-                # Удаляем системное сообщение
                 await message.delete()
                 logger.info(f"Удалено системное сообщение в чате {message.chat.id}")
-                
-                # Уведомляем только администраторов в личные сообщения
                 await self.notify_admins_privately(message, context)
                     
             except Exception as e:
                 logger.error(f"Ошибка при удалении сообщения: {e}")
-                # Если не удалось удалить, отправляем уведомление только администраторам
                 try:
                     await self.notify_admins_privately(message, context, error=True)
                 except:
@@ -196,7 +250,7 @@ class SystemMessageCleanerBot:
         try:
             admins = await message.chat.get_administrators()
             for admin in admins:
-                if admin.user.id != context.bot.id:  # Не уведомляем самого бота
+                if admin.user.id != context.bot.id:
                     try:
                         if error:
                             notification_text = f"⚠️ Не удалось удалить системное сообщение в чате {message.chat.title}. Проверьте права бота."
@@ -208,7 +262,7 @@ class SystemMessageCleanerBot:
                             text=notification_text
                         )
                     except:
-                        pass  # Игнорируем ошибки отправки в личные сообщения
+                        pass
         except Exception as e:
             logger.error(f"Ошибка при уведомлении администраторов: {e}")
     
@@ -218,11 +272,11 @@ class SystemMessageCleanerBot:
         Удаляет ТОЛЬКО официальные системные поля Telegram.
         НЕ удаляет обычные сообщения НИ ПРИ КАКИХ условиях.
         """
-        # Если у сообщения есть текст - это НЕ системное сообщение (почти всегда)
+        # Если у сообщения есть текст - это НЕ системное сообщение
         if message.text and len(message.text.strip()) > 0:
             return False
         
-        # Если есть медиа (фото, видео, документ и т.д.) — НЕ удаляем
+        # Если есть медиа — НЕ удаляем
         if any([
             message.photo, message.video, message.audio, message.document,
             message.voice, message.video_note, message.sticker, message.animation,
@@ -231,14 +285,12 @@ class SystemMessageCleanerBot:
             return False
         
         # Проверяем ТОЛЬКО официальные системные поля
-        # И только если они точно указывают на системное сообщение
         if hasattr(message, 'new_chat_members') and message.new_chat_members:
             return True
         
         if hasattr(message, 'left_chat_member') and message.left_chat_member is not None:
             return True
         
-        # Эти поля тоже однозначно системные
         system_fields = [
             'new_chat_title',
             'new_chat_photo',
@@ -273,7 +325,6 @@ class SystemMessageCleanerBot:
             if hasattr(message, field) and getattr(message, field) is not None:
                 return True
         
-        # ВСЕ остальные сообщения НЕ удаляем
         return False
     
     def run(self):
