@@ -1,4 +1,5 @@
 import logging
+import requests  # <-- ДОБАВЛЕНО: для работы с API намаза
 from telegram import Update
 from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
 from config import BOT_TOKEN, SYSTEM_MESSAGE_TYPES
@@ -26,6 +27,9 @@ class SystemMessageCleanerBot:
         # Обработчик команды /status
         self.application.add_handler(CommandHandler("status", self.status_command))
         
+        # НОВЫЙ ОБРАБОТЧИК: команда /prayer
+        self.application.add_handler(CommandHandler("prayer", self.prayer_command))
+        
         # Обработчик всех сообщений для проверки системных сообщений
         self.application.add_handler(MessageHandler(filters.ALL, self.handle_message))
     
@@ -48,6 +52,7 @@ class SystemMessageCleanerBot:
 /start - показать это сообщение
 /help - справка
 /status - статус бота
+/prayer [город] - время намаза (Mecca или Medina)
 
 Для работы добавьте меня в чат и дайте права администратора для удаления сообщений.
         """
@@ -81,6 +86,7 @@ class SystemMessageCleanerBot:
 /start - главное меню
 /help - эта справка
 /status - статус работы
+/prayer [город] - время намаза (например, /prayer Mecca или /prayer Medina)
         """
         await update.message.reply_text(help_text, parse_mode='Markdown')
     
@@ -110,6 +116,64 @@ class SystemMessageCleanerBot:
             status_text = f"❌ Ошибка при получении статуса: {e}"
         
         await update.message.reply_text(status_text, parse_mode='Markdown')
+    
+    # ============ НОВАЯ ФУНКЦИЯ ДЛЯ НАМАЗА ============
+    async def prayer_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обрабатывает команду /prayer и показывает время намаза для указанного города."""
+        try:
+            # Получаем город из сообщения пользователя
+            city = context.args[0] if context.args else None
+            
+            if city is None:
+                await update.message.reply_text(
+                    "🕌 Пожалуйста, укажите город.\n"
+                    "Например: `/prayer Mecca` или `/prayer Medina`",
+                    parse_mode='Markdown'
+                )
+                return
+            
+            # Запрос к AlAdhan API
+            response = requests.get(
+                f"http://api.aladhan.com/v1/timingsByCity",
+                params={
+                    "city": city,
+                    "country": "Saudi Arabia",
+                    "method": 2  # Метод ISNA (Исламское общество Северной Америки)
+                },
+                timeout=10
+            )
+            data = response.json()
+            
+            if data.get('code') == 200:
+                timings = data['data']['timings']
+                date_info = data['data']['date']['readable']
+                
+                prayer_times = (
+                    f"🕌 **Время намаза для {city}**\n"
+                    f"📅 {date_info}\n\n"
+                    f"🌅 **Фаджр:** {timings['Fajr']}\n"
+                    f"☀️ **Восход:** {timings['Sunrise']}\n"
+                    f"🏙️ **Зухр:** {timings['Dhuhr']}\n"
+                    f"🌇 **Аср:** {timings['Asr']}\n"
+                    f"🌆 **Магриб:** {timings['Maghrib']}\n"
+                    f"🌃 **Иша:** {timings['Isha']}"
+                )
+                await update.message.reply_text(prayer_times, parse_mode='Markdown')
+            else:
+                await update.message.reply_text(
+                    f"❌ Не удалось найти время намаза для города '{city}'.\n"
+                    "Проверьте написание (Mecca или Medina)."
+                )
+                
+        except requests.exceptions.Timeout:
+            await update.message.reply_text("⏰ Сервер времени намаза не отвечает. Попробуйте позже.")
+        except requests.exceptions.RequestException as e:
+            await update.message.reply_text("🌐 Ошибка соединения с сервером времени намаза.")
+            logger.error(f"Ошибка запроса к API намаза: {e}")
+        except Exception as e:
+            await update.message.reply_text("❌ Произошла ошибка при получении времени намаза.")
+            logger.error(f"Ошибка в prayer_command: {e}")
+    # ============ КОНЕЦ НОВОЙ ФУНКЦИИ ============
     
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик всех сообщений для удаления системных"""
@@ -225,4 +289,4 @@ class SystemMessageCleanerBot:
 
 if __name__ == "__main__":
     bot = SystemMessageCleanerBot()
-    bot.run() 
+    bot.run()
