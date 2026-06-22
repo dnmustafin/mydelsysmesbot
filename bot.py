@@ -18,21 +18,13 @@ class SystemMessageCleanerBot:
     
     def setup_handlers(self):
         """Настройка обработчиков команд и сообщений"""
-        # Основные команды
         self.application.add_handler(CommandHandler("start", self.start_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
-        
-        # Команда для намаза с кнопками
         self.application.add_handler(CommandHandler("prayer", self.prayer_command))
-        
-        # Обработчик нажатий на кнопки
         self.application.add_handler(CallbackQueryHandler(self.button_callback))
-        
-        # Обработчик всех сообщений (для удаления системных)
         self.application.add_handler(MessageHandler(filters.ALL, self.handle_message))
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработчик команды /start"""
         welcome_text = """
 🤖 **Бот для очистки системных сообщений + время намаза**
 
@@ -57,7 +49,6 @@ class SystemMessageCleanerBot:
         await update.message.reply_text(welcome_text, parse_mode='Markdown')
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработчик команды /help"""
         help_text = """
 📖 **Справка по использованию бота**
 
@@ -146,10 +137,11 @@ class SystemMessageCleanerBot:
         if self.is_system_message(message):
             try:
                 await message.delete()
-                # Лог в терминал
-                logger.info(f"🗑️ Удалено системное сообщение в чате {message.chat.id}")
+                # Лог в терминал с типом
+                message_type = self.get_message_type(message)
+                logger.info(f"🗑️ Удалено системное сообщение типа: {message_type} в чате {message.chat.id}")
                 
-                # Уведомляем администраторов в личные сообщения
+                # Уведомляем администраторов с типом
                 await self.notify_admins_privately(message, context)
             except Exception as e:
                 logger.error(f"❌ Ошибка при удалении: {e}")
@@ -159,16 +151,19 @@ class SystemMessageCleanerBot:
                     pass
     
     async def notify_admins_privately(self, message, context, error=False):
-        """Уведомляет администраторов в личные сообщения"""
+        """Уведомляет администраторов в личные сообщения с указанием типа"""
         try:
             admins = await message.chat.get_administrators()
+            # Определяем тип сообщения
+            message_type = self.get_message_type(message)
+            
             for admin in admins:
                 if admin.user.id != context.bot.id:
                     try:
                         if error:
                             notification_text = f"⚠️ Не удалось удалить системное сообщение в чате {message.chat.title}. Проверьте права бота."
                         else:
-                            notification_text = f"🗑️ В чате {message.chat.title} удалено системное сообщение"
+                            notification_text = f"🗑️ В чате {message.chat.title} удалено системное сообщение типа: {message_type}"
                         
                         await context.bot.send_message(
                             chat_id=admin.user.id,
@@ -181,16 +176,10 @@ class SystemMessageCleanerBot:
             logger.error(f"❌ Ошибка при получении списка администраторов: {e}")
     
     def is_system_message(self, message) -> bool:
-        """
-        Проверяет, является ли сообщение системным.
-        Удаляет ТОЛЬКО официальные системные поля Telegram.
-        НЕ удаляет обычные сообщения.
-        """
-        # Если есть текст — НЕ удаляем
+        """Проверяет, является ли сообщение системным"""
         if message.text and len(message.text.strip()) > 0:
             return False
         
-        # Если есть медиа — НЕ удаляем
         if any([
             message.photo, message.video, message.audio, message.document,
             message.voice, message.video_note, message.sticker, message.animation,
@@ -198,7 +187,6 @@ class SystemMessageCleanerBot:
         ]):
             return False
         
-        # Проверяем системные поля
         if hasattr(message, 'new_chat_members') and message.new_chat_members:
             return True
         if hasattr(message, 'left_chat_member') and message.left_chat_member is not None:
@@ -219,11 +207,52 @@ class SystemMessageCleanerBot:
         for field in system_fields:
             if hasattr(message, field) and getattr(message, field) is not None:
                 return True
-        
         return False
     
+    def get_message_type(self, message) -> str:
+        """Определяет тип системного сообщения"""
+        if hasattr(message, 'new_chat_members') and message.new_chat_members:
+            return 'new_chat_members (новые участники)'
+        if hasattr(message, 'left_chat_member') and message.left_chat_member is not None:
+            return 'left_chat_member (выход участника)'
+        
+        system_fields = {
+            'new_chat_title': 'изменение названия чата',
+            'new_chat_photo': 'изменение фото чата',
+            'delete_chat_photo': 'удаление фото чата',
+            'group_chat_created': 'создание группы',
+            'supergroup_chat_created': 'создание супергруппы',
+            'channel_chat_created': 'создание канала',
+            'message_auto_delete_timer_changed': 'изменение таймера автоудаления',
+            'migrate_to_chat_id': 'миграция чата',
+            'migrate_from_chat_id': 'миграция чата',
+            'pinned_message': 'закрепленное сообщение',
+            'invoice': 'инвойс',
+            'successful_payment': 'успешная оплата',
+            'connected_website': 'подключенный сайт',
+            'write_access_allowed': 'разрешение на запись',
+            'passport_data': 'данные паспорта',
+            'proximity_alert_triggered': 'сигнал приближения',
+            'forum_topic_created': 'создание темы форума',
+            'forum_topic_edited': 'изменение темы форума',
+            'forum_topic_closed': 'закрытие темы форума',
+            'forum_topic_reopened': 'открытие темы форума',
+            'general_forum_topic_hidden': 'скрытие общей темы форума',
+            'general_forum_topic_unhidden': 'показ общей темы форума',
+            'video_chat_scheduled': 'запланированный видеозвонок',
+            'video_chat_started': 'начало видеозвонка',
+            'video_chat_ended': 'конец видеозвонка',
+            'video_chat_participants_invited': 'приглашение в видеозвонок',
+            'web_app_data': 'данные веб-приложения'
+        }
+        
+        for field, description in system_fields.items():
+            if hasattr(message, field) and getattr(message, field) is not None:
+                return f"{field} ({description})"
+        
+        return "unknown (неизвестный тип)"
+    
     def run(self):
-        """Запуск бота"""
         logger.info("🚀 Бот запущен и готов к работе!")
         self.application.run_polling(allowed_updates=Update.ALL_TYPES)
 
